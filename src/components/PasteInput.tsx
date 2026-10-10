@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { uploadImage, uploadDocument } from '@/lib/supabase';
+import { htmlToPlainText, readClipboardText } from '@/lib/clipboard';
 
 const MAX_CHARS = 500000;
 
@@ -30,6 +31,7 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
+  const clipboardReadVersion = useRef(0);
 
   const handleImageUpload = async (file: File) => {
     setIsSubmitting(true);
@@ -112,6 +114,7 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
   const handleSubmit = async () => {
     if (!content.trim() || isSubmitting || isOverLimit) return;
 
+    clipboardReadVersion.current += 1;
     setIsSubmitting(true);
     try {
       await onSubmit(content.trim(), 'text');
@@ -143,7 +146,8 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
     }
   };
 
-  const handleClipboardPaste = async (e: React.ClipboardEvent) => {
+  const handleClipboardPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    clipboardReadVersion.current += 1;
     const items = e.clipboardData.items;
     for (const item of items) {
       if (item.type.startsWith('image/')) {
@@ -155,6 +159,22 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
         return;
       }
     }
+
+    // Keep native plain-text pastes (and image priority above) unchanged.
+    if (e.clipboardData.getData('text/plain')) return;
+    const html = e.clipboardData.getData('text/html');
+    if (!html) return;
+    const text = htmlToPlainText(html);
+    if (!text) return;
+
+    e.preventDefault();
+    const textarea = e.currentTarget;
+    const { selectionStart, selectionEnd } = textarea;
+    setContent((current) => current.slice(0, selectionStart) + text + current.slice(selectionEnd));
+    requestAnimationFrame(() => {
+      const caret = selectionStart + text.length;
+      textarea.setSelectionRange(caret, caret);
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -166,8 +186,11 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
   };
 
   const handlePasteFromClipboard = async () => {
+    // Edits, keyboard pastes, sends, and newer reads invalidate this request.
+    const version = ++clipboardReadVersion.current;
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboardText();
+      if (version !== clipboardReadVersion.current) return;
       if (text) {
         setContent(text);
         toast.success('Pasted from clipboard');
@@ -175,6 +198,7 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
         toast.error('Clipboard is empty');
       }
     } catch {
+      if (version !== clipboardReadVersion.current) return;
       toast.error('Could not access clipboard');
     }
   };
@@ -191,7 +215,10 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
         <Textarea
           placeholder="Paste or type text here..."
           value={content}
-          onChange={(e) => setContent(e.target.value)}
+          onChange={(e) => {
+            clipboardReadVersion.current += 1;
+            setContent(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           onPaste={handleClipboardPaste}
           disabled={disabled || isSubmitting}
