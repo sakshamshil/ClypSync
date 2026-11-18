@@ -1,35 +1,88 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { PinEntry } from '@/components/PinEntry';
+import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
+import { PinEntry, type EntryResult } from '@/components/PinEntry';
 import { ClipboardView } from '@/components/ClipboardView';
-import { STORAGE_KEY, PIN_LENGTH } from '@/lib/constants';
+import {
+  type Space,
+  createSpace,
+  loadActiveId,
+  loadSpaces,
+  migrateLegacyPin,
+  phraseToRoomCode,
+  saveSpaces,
+} from '@/lib/spaces';
+import { SPACES_KEY } from '@/lib/constants';
 
 export default function Home() {
-  const [pin, setPin] = useState<string | null>(null);
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check localStorage on mount
+  // Load spaces from localStorage on mount
   useEffect(() => {
-    const storedPin = localStorage.getItem(STORAGE_KEY);
-    if (storedPin && storedPin.length === PIN_LENGTH) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setPin(storedPin);
-    }
+    migrateLegacyPin();
+    const list = loadSpaces();
+    const stored = loadActiveId();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSpaces(list);
+    setActiveId(list.some((s) => s.id === stored) ? stored : list[0]?.id ?? null);
     setIsLoading(false);
+
+    // Keep tabs in sync: another tab may add, rename, or leave a space.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SPACES_KEY) setSpaces(loadSpaces());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  const handlePinComplete = (newPin: string) => {
-    localStorage.setItem(STORAGE_KEY, newPin);
-    setPin(newPin);
+  // Apply a change to the freshest stored list, so one tab never drops
+  // a space that another tab added.
+  const commit = useCallback((change: (list: Space[]) => Space[], id: string | null) => {
+    const list = change(loadSpaces());
+    saveSpaces(list, id);
+    setSpaces(list);
+    setActiveId(id);
+  }, []);
+
+  const handleEntry = async (result: EntryResult) => {
+    let code: string;
+    try {
+      code = result.kind === 'pin' ? result.pin : await phraseToRoomCode(result.phrase);
+    } catch {
+      toast.error('Could not open the space. Your browser needs HTTPS for passphrases.');
+      return;
+    }
+
+    const current = loadSpaces();
+    const existing = current.find((s) => s.code === code);
+    if (existing) {
+      commit((l) => l, existing.id);
+      if (adding) toast.info(`Switched to ${existing.label}`);
+    } else {
+      const space = createSpace(code, result.kind, result.kind === 'phrase' ? result.label : '', current);
+      commit((l) => [...l, space], space.id);
+    }
+    setAdding(false);
   };
 
-  const handleLeaveRoom = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    setPin(null);
+  const handleSwitch = (id: string) => commit((l) => l, id);
+
+  const handleRename = (id: string, label: string) => {
+    const clean = label.trim().slice(0, 32);
+    if (!clean) return;
+    commit((l) => l.map((s) => (s.id === id ? { ...s, label: clean } : s)), activeId);
   };
 
-  // Show nothing while checking localStorage (prevents flash)
+  const handleLeave = (id: string) => {
+    const remaining = loadSpaces().filter((s) => s.id !== id);
+    const nextId = id === activeId ? remaining[0]?.id ?? null : activeId;
+    commit(() => remaining, nextId);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -38,10 +91,21 @@ export default function Home() {
     );
   }
 
-  // Show PIN entry or clipboard view
-  if (!pin) {
-    return <PinEntry onPinComplete={handlePinComplete} />;
+  const active = spaces.find((s) => s.id === activeId);
+
+  if (!active || adding) {
+    return <PinEntry onComplete={handleEntry} onCancel={active ? () => setAdding(false) : undefined} />;
   }
 
-  return <ClipboardView pin={pin} onLeaveRoom={handleLeaveRoom} />;
+  return (
+    <ClipboardView
+      key={active.code}
+      space={active}
+      spaces={spaces}
+      onSwitch={handleSwitch}
+      onAdd={() => setAdding(true)}
+      onRename={handleRename}
+      onLeave={handleLeave}
+    />
+  );
 }

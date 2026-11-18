@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { LogOut, Trash2, Download } from 'lucide-react';
+import { Trash2, Download } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,14 +28,23 @@ import { PasteInput } from './PasteInput';
 import { PasteList } from './PasteList';
 import { supabase, deleteImage, deleteRoomImages, deleteDocument, deleteRoomDocuments } from '@/lib/supabase';
 import { APP_NAME } from '@/lib/constants';
+import { SpaceSwitcher } from './SpaceSwitcher';
+import type { Space } from '@/lib/spaces';
 import type { Paste } from '@/types';
 
 interface ClipboardViewProps {
-  pin: string;
-  onLeaveRoom: () => void;
+  space: Space;
+  spaces: Space[];
+  onSwitch: (id: string) => void;
+  onAdd: () => void;
+  onRename: (id: string, label: string) => void;
+  onLeave: (id: string) => void;
 }
 
-export function ClipboardView({ pin, onLeaveRoom }: ClipboardViewProps) {
+export function ClipboardView({ space, spaces, onSwitch, onAdd, onRename, onLeave }: ClipboardViewProps) {
+  // room_code in the DB: the PIN itself, or the hash derived from a passphrase.
+  const pin = space.code;
+  const fileSlug = space.kind === 'pin' ? pin : space.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'space';
   const [pastes, setPastes] = useState<Paste[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -186,13 +195,13 @@ export function ClipboardView({ pin, onLeaveRoom }: ClipboardViewProps) {
         null,
         2
       );
-      filename = `clypsync-${pin}.json`;
+      filename = `clypsync-${fileSlug}.json`;
       mimeType = 'application/json';
     } else {
       // Text export - only include text pastes, skip images and documents
       const textPastes = sorted.filter((p) => p.type === 'text');
       content = textPastes.map((p) => p.content).join('\n\n===\n\n');
-      filename = `clypsync-${pin}.txt`;
+      filename = `clypsync-${fileSlug}.txt`;
       mimeType = 'text/plain';
     }
 
@@ -284,11 +293,16 @@ export function ClipboardView({ pin, onLeaveRoom }: ClipboardViewProps) {
       {/* Header */}
       <header className="border-b sticky top-0 bg-background z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div>
+          <div className="min-w-0">
             <h1 className="font-semibold">{APP_NAME}</h1>
-            <p className="text-sm text-muted-foreground">
-              Room: <span className="font-mono">{pin}</span>
-            </p>
+            <SpaceSwitcher
+              space={space}
+              spaces={spaces}
+              onSwitch={onSwitch}
+              onAdd={onAdd}
+              onRename={onRename}
+              onLeave={onLeave}
+            />
             {pastes.length > 0 && (
               <p className="text-xs text-muted-foreground mt-0.5">
                 {(() => {
@@ -343,7 +357,7 @@ export function ClipboardView({ pin, onLeaveRoom }: ClipboardViewProps) {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Clear all pastes?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete all pastes in this room. This action cannot be undone.
+                    This will permanently delete all pastes in this space. This action cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -354,10 +368,6 @@ export function ClipboardView({ pin, onLeaveRoom }: ClipboardViewProps) {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-
-            <Button variant="ghost" size="icon" onClick={onLeaveRoom}>
-              <LogOut className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       </header>
