@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { PasteInput } from './PasteInput';
 import { PasteList } from './PasteList';
-import { supabase, deleteImage, deleteRoomImages, deleteDocument, deleteRoomDocuments } from '@/lib/supabase';
+import { supabase, fetchRoomPastes, deletePastes } from '@/lib/supabase';
 import { APP_NAME } from '@/lib/constants';
 import { SpaceSwitcher } from './SpaceSwitcher';
 import type { Space } from '@/lib/spaces';
@@ -64,15 +64,7 @@ export function ClipboardView({ space, spaces, onSwitch, onAdd, onRename, onLeav
   // Fetch pastes
   const fetchPastes = useCallback(async () => {
     try {
-      const { data, error: fetchError } = await supabase
-        .from('pastes')
-        .select('*')
-        .eq('room_code', pin)
-        .order('created_at', { ascending: false });
-
-      if (fetchError) throw fetchError;
-
-      setPastes(data || []);
+      setPastes(await fetchRoomPastes(pin));
     } catch (err) {
       setError('Failed to load pastes');
       console.error(err);
@@ -111,28 +103,8 @@ export function ClipboardView({ space, spaces, onSwitch, onAdd, onRename, onLeav
   // Delete single paste
   const deletePaste = async (id: string) => {
     try {
-      // Find the paste to check if it's an image or document
-      const paste = pastes.find((p) => p.id === id);
-      if (paste?.type === 'image') {
-        // Delete image from storage
-        const { error: storageError } = await deleteImage(paste.content);
-        if (storageError) {
-          console.error('Failed to delete image from storage:', storageError);
-        }
-      } else if (paste?.type === 'document') {
-        // Delete document from storage
-        const { error: storageError } = await deleteDocument(paste.content);
-        if (storageError) {
-          console.error('Failed to delete document from storage:', storageError);
-        }
-      }
-
-      const { error: deleteError } = await supabase
-        .from('pastes')
-        .delete()
-        .eq('id', id);
-
-      if (deleteError) throw deleteError;
+      const { error: deleteError } = await deletePastes(pin, [id]);
+      if (deleteError) throw new Error(deleteError);
 
       setPastes((prev) => prev.filter((p) => p.id !== id)); // Update UI immediately
       toast.success('Paste deleted');
@@ -144,29 +116,8 @@ export function ClipboardView({ space, spaces, onSwitch, onAdd, onRename, onLeav
   // Clear all pastes
   const clearAll = async () => {
     try {
-      // Delete all images and documents from storage first
-      const imagePastes = pastes.filter((p) => p.type === 'image');
-      if (imagePastes.length > 0) {
-        const { error: storageError } = await deleteRoomImages(pin);
-        if (storageError) {
-          console.error('Failed to delete some images from storage:', storageError);
-        }
-      }
-
-      const documentPastes = pastes.filter((p) => p.type === 'document');
-      if (documentPastes.length > 0) {
-        const { error: storageError } = await deleteRoomDocuments(pin);
-        if (storageError) {
-          console.error('Failed to delete some documents from storage:', storageError);
-        }
-      }
-
-      const { error: deleteError } = await supabase
-        .from('pastes')
-        .delete()
-        .eq('room_code', pin);
-
-      if (deleteError) throw deleteError;
+      const { error: deleteError } = await deletePastes(pin);
+      if (deleteError) throw new Error(deleteError);
 
       setPastes([]); // Update UI immediately
       toast.success('All pastes cleared!');
@@ -221,36 +172,16 @@ export function ClipboardView({ space, spaces, onSwitch, onAdd, onRename, onLeav
 
     const channel = supabase
       .channel(`room:${pin}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'pastes',
-          filter: `room_code=eq.${pin}`,
-        },
-        (payload) => {
-          setPastes((prev) => {
-            if (prev.some((p) => p.id === (payload.new as Paste).id)) {
-              return prev;
-            }
-            return [payload.new as Paste, ...prev];
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'pastes',
-          filter: `room_code=eq.${pin}`,
-        },
-        () => {
-          // Refetch on delete since we might have deleted multiple
-          fetchPastes();
-        }
-      )
+      // The DB broadcasts each change to 'room:<code>'. Only clients that
+      // know the code can join this topic.
+      .on('broadcast', { event: 'insert' }, ({ payload }) => {
+        const paste = payload as Paste;
+        setPastes((prev) => (prev.some((p) => p.id === paste.id) ? prev : [paste, ...prev]));
+      })
+      .on('broadcast', { event: 'delete' }, ({ payload }) => {
+        const { id } = payload as { id: string };
+        setPastes((prev) => prev.filter((p) => p.id !== id));
+      })
       .subscribe((status) => {
         // Re-sync on every (re)connect, so pastes missed while the
         // socket was down (sleep, backgrounded tab, network drop) show up

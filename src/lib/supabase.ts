@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import type { Paste } from '@/types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -16,6 +17,12 @@ const ALLOWED_DOCUMENT_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'text/plain',
 ];
+
+/** 128 random bits, so nobody can guess a file URL. */
+function randomName(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 export function validateImageFile(file: File): { valid: boolean; error?: string } {
   if (!file.type.startsWith('image/')) {
@@ -47,7 +54,7 @@ export async function uploadImage(
   }
 
   const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 10);
+  const random = randomName();
   const extension = file.name.split('.').pop() || 'png';
   const path = `${roomCode}/${timestamp}-${random}.${extension}`;
 
@@ -73,7 +80,7 @@ export async function uploadDocument(
   }
 
   const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 10);
+  const random = randomName();
   const extension = file.name.split('.').pop() || 'pdf';
   const path = `${roomCode}/${timestamp}-${random}.${extension}`;
 
@@ -89,86 +96,20 @@ export async function uploadDocument(
   return { url: data.publicUrl, fileName: file.name, fileSize: file.size };
 }
 
-export async function deleteImage(url: string): Promise<{ error?: string }> {
-  // Extract path from public URL
-  const pathMatch = url.match(/\/storage\/v1\/object\/public\/images\/(.+)$/);
-  if (!pathMatch) {
-    return { error: 'Invalid image URL' };
-  }
-
-  const path = pathMatch[1];
-  const { error } = await supabase.storage.from(BUCKET_NAME).remove([path]);
-
-  if (error) {
-    return { error: 'Failed to delete image' };
-  }
-
-  return {};
+/** Load one room's pastes. The DB returns rows only for the exact room code. */
+export async function fetchRoomPastes(roomCode: string): Promise<Paste[]> {
+  const { data, error } = await supabase.rpc('get_pastes', { room: roomCode });
+  if (error) throw error;
+  return (data ?? []) as Paste[];
 }
 
-export async function deleteRoomImages(roomCode: string): Promise<{ error?: string }> {
-  // List all files in the room folder
-  const { data: files, error: listError } = await supabase.storage
-    .from(BUCKET_NAME)
-    .list(roomCode);
-
-  if (listError) {
-    return { error: 'Failed to list images' };
-  }
-
-  if (!files || files.length === 0) {
-    return {};
-  }
-
-  // Delete all files in the room
-  const paths = files.map((file) => `${roomCode}/${file.name}`);
-  const { error: deleteError } = await supabase.storage.from(BUCKET_NAME).remove(paths);
-
-  if (deleteError) {
-    return { error: 'Failed to delete some images' };
-  }
-
-  return {};
-}
-
-export async function deleteDocument(url: string): Promise<{ error?: string }> {
-  // Extract path from public URL
-  const pathMatch = url.match(/\/storage\/v1\/object\/public\/documents\/(.+)$/);
-  if (!pathMatch) {
-    return { error: 'Invalid document URL' };
-  }
-
-  const path = pathMatch[1];
-  const { error } = await supabase.storage.from(DOCUMENT_BUCKET_NAME).remove([path]);
-
-  if (error) {
-    return { error: 'Failed to delete document' };
-  }
-
-  return {};
-}
-
-export async function deleteRoomDocuments(roomCode: string): Promise<{ error?: string }> {
-  // List all files in the room folder
-  const { data: files, error: listError } = await supabase.storage
-    .from(DOCUMENT_BUCKET_NAME)
-    .list(roomCode);
-
-  if (listError) {
-    return { error: 'Failed to list documents' };
-  }
-
-  if (!files || files.length === 0) {
-    return {};
-  }
-
-  // Delete all files in the room
-  const paths = files.map((file) => `${roomCode}/${file.name}`);
-  const { error: deleteError } = await supabase.storage.from(DOCUMENT_BUCKET_NAME).remove(paths);
-
-  if (deleteError) {
-    return { error: 'Failed to delete some documents' };
-  }
-
-  return {};
+/**
+ * Delete pastes and their files through the delete-pastes Edge Function.
+ * No ids clears the whole room.
+ */
+export async function deletePastes(roomCode: string, ids?: string[]): Promise<{ error?: string }> {
+  const { error } = await supabase.functions.invoke('delete-pastes', {
+    body: ids ? { room: roomCode, ids } : { room: roomCode },
+  });
+  return error ? { error: 'Failed to delete' } : {};
 }
