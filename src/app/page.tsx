@@ -78,9 +78,19 @@ export default function Home() {
   };
 
   const handleLeave = (id: string) => {
-    const remaining = loadSpaces().filter((s) => s.id !== id);
+    const all = loadSpaces();
+    const left = all.find((s) => s.id === id);
+    const remaining = all.filter((s) => s.id !== id);
     const nextId = id === activeId ? remaining[0]?.id ?? null : activeId;
     commit(() => remaining, nextId);
+    if (left) {
+      toast(`Left ${left.label}`, {
+        action: {
+          label: 'Undo',
+          onClick: () => commit((l) => (l.some((s) => s.id === left.id) ? l : [...l, left]), left.id),
+        },
+      });
+    }
   };
 
   if (isLoading) {

@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -39,7 +38,6 @@ function SpaceIcon({ kind, className }: { kind: Space['kind']; className?: strin
 
 export function SpaceSwitcher({ space, spaces, onSwitch, onAdd, onRename, onLeave }: SpaceSwitcherProps) {
   const [renameOpen, setRenameOpen] = useState(false);
-  const [leaveOpen, setLeaveOpen] = useState(false);
   const [draft, setDraft] = useState(space.label);
 
   return (
@@ -82,7 +80,7 @@ export function SpaceSwitcher({ space, spaces, onSwitch, onAdd, onRename, onLeav
             <Pencil className="h-3.5 w-3.5" />
             Rename this space
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setLeaveOpen(true)} className="gap-2">
+          <DropdownMenuItem onSelect={() => onLeave(space.id)} className="gap-2">
             <LogOut className="h-3.5 w-3.5" />
             Leave this space
           </DropdownMenuItem>
@@ -114,21 +112,6 @@ export function SpaceSwitcher({ space, spaces, onSwitch, onAdd, onRename, onLeav
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={leaveOpen} onOpenChange={setLeaveOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Leave “{space.label}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This device forgets the space. The pastes stay, and you can come back with the same{' '}
-              {space.kind === 'phrase' ? 'passphrase' : 'room code'}.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => onLeave(space.id)}>Leave</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
