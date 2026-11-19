@@ -5,10 +5,24 @@ import { Send, ClipboardPaste, Image as ImageIcon, FileText, Loader2, Upload } f
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { uploadImage, uploadDocument } from '@/lib/supabase';
+import {
+  uploadImage,
+  uploadDocument,
+  validateDocumentFile,
+  formatMB,
+  MAX_IMAGE_SIZE,
+  MAX_DOCUMENT_SIZE,
+} from '@/lib/supabase';
 
 const MAX_CHARS = 500000;
 const MAX_FILES = 10;
+
+/** "a.png", "a.png and b.png", or "a.png, b.png and 3 more". */
+function listNames(names: string[]): string {
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+}
 
 interface PasteInputProps {
   onSubmit: (
@@ -32,28 +46,44 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
   const documentInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
 
-  // Upload every file first (in parallel), then add one paste per file in
-  // the order the user picked them. One summary toast for the whole batch.
+  // Check every file first, upload the valid ones in parallel, then add one
+  // paste per file in the order the user picked them. The whole batch gets
+  // exactly one toast, with the skipped files listed in its description.
   const handleFiles = async (input: FileList | File[]) => {
-    let files = Array.from(input);
-    if (files.length === 0) return;
-    if (files.length > MAX_FILES) {
-      toast.error(`You can upload ${MAX_FILES} files at a time. Uploading the first ${MAX_FILES}.`);
-      files = files.slice(0, MAX_FILES);
-    }
+    const picked = Array.from(input);
+    if (picked.length === 0) return;
+    const files = picked.slice(0, MAX_FILES);
+    const tooMany = picked.length - files.length;
+
+    const tooLarge: string[] = [];
+    const largeKinds = new Set<'image' | 'document'>();
+    const wrongType: string[] = [];
+    const failed: string[] = [];
+    const valid = files.filter((file) => {
+      const isImage = file.type.startsWith('image/');
+      if (!isImage && !validateDocumentFile(file).valid && file.size <= MAX_DOCUMENT_SIZE) {
+        wrongType.push(file.name);
+        return false;
+      }
+      if (file.size > (isImage ? MAX_IMAGE_SIZE : MAX_DOCUMENT_SIZE)) {
+        tooLarge.push(file.name);
+        largeKinds.add(isImage ? 'image' : 'document');
+        return false;
+      }
+      return true;
+    });
+
     setIsSubmitting(true);
     try {
       const uploads = await Promise.all(
-        files.map(async (file) => {
+        valid.map(async (file) => {
           const isImage = file.type.startsWith('image/');
           try {
             const res = isImage ? await uploadImage(file, roomCode) : await uploadDocument(file, roomCode);
-            if (res.error) {
-              toast.error(files.length > 1 ? `${file.name}: ${res.error}` : res.error);
-              return null;
-            }
-            return { file, isImage, res };
+            if (res.error) throw new Error(res.error);
+            return { file, isImage, url: res.url };
           } catch {
+            failed.push(file.name);
             return null;
           }
         })
@@ -66,19 +96,38 @@ export function PasteInput({ onSubmit, disabled, roomCode }: PasteInputProps) {
         const meta = u.isImage
           ? { silent: true }
           : { fileName: u.file.name, fileSize: u.file.size, silent: true };
-        if (await onSubmit(u.res.url, u.isImage ? 'image' : 'document', meta)) {
+        if (await onSubmit(u.url, u.isImage ? 'image' : 'document', meta)) {
           ok += 1;
           if (u.isImage) images += 1;
+        } else {
+          failed.push(u.file.name);
         }
       }
 
+      const problems = [
+        tooLarge.length &&
+          `${listNames(tooLarge)} ${tooLarge.length === 1 ? 'is' : 'are'} too large. ${[
+          largeKinds.has('image') && `Images can be up to ${formatMB(MAX_IMAGE_SIZE)}.`,
+          largeKinds.has('document') && `Documents can be up to ${formatMB(MAX_DOCUMENT_SIZE)}.`,
+        ].filter(Boolean).join(' ')}`,
+        wrongType.length && `${listNames(wrongType)}: only PDF, DOC, DOCX and TXT documents are supported.`,
+        failed.length && `${listNames(failed)} failed to upload. Try again.`,
+        tooMany && `${tooMany} more ${tooMany === 1 ? 'file was' : 'files were'} skipped. You can upload ${MAX_FILES} at a time.`,
+      ].filter(Boolean) as string[];
+      const description = problems.length ? problems.join('\n') : undefined;
+
+      const total = picked.length;
+      const noun = (n: number) =>
+        images === n ? (n === 1 ? 'image' : 'images') : images === 0 ? (n === 1 ? 'document' : 'documents') : 'files';
+
       if (ok === 0) {
-        toast.error(files.length > 1 ? 'Failed to upload the files' : 'Failed to upload the file');
-      } else if (files.length === 1) {
-        toast.success(images ? 'Image uploaded!' : 'Document uploaded!');
+        toast.error(total === 1 ? 'Upload failed' : 'Nothing was uploaded', {
+          description: total === 1 && problems.length === 1 ? problems[0].replace(`${picked[0].name} `, 'This file ') : description,
+        });
+      } else if (!problems.length) {
+        toast.success(ok === 1 ? (images ? 'Image uploaded!' : 'Document uploaded!') : `${ok} ${noun(ok)} uploaded!`);
       } else {
-        const noun = images === ok ? 'images' : images === 0 ? 'documents' : 'files';
-        toast.success(ok === files.length ? `${ok} ${noun} uploaded!` : `${ok} of ${files.length} files uploaded`);
+        toast.warning(`${ok} of ${total} files uploaded`, { description, duration: 8000 });
       }
     } finally {
       setIsSubmitting(false);

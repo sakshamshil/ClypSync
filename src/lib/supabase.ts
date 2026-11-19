@@ -6,10 +6,10 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+export const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 const BUCKET_NAME = 'images';
 
-const MAX_DOCUMENT_SIZE = 30 * 1024 * 1024; // 30MB
+export const MAX_DOCUMENT_SIZE = 30 * 1024 * 1024; // 30MB
 const DOCUMENT_BUCKET_NAME = 'documents';
 const ALLOWED_DOCUMENT_TYPES = [
   'application/pdf',
@@ -17,6 +17,10 @@ const ALLOWED_DOCUMENT_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'text/plain',
 ];
+
+export function formatMB(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
 
 /** 128 random bits, so nobody can guess a file URL. */
 function randomName(): string {
@@ -28,8 +32,8 @@ export function validateImageFile(file: File): { valid: boolean; error?: string 
   if (!file.type.startsWith('image/')) {
     return { valid: false, error: 'File must be an image' };
   }
-  if (file.size > MAX_FILE_SIZE) {
-    return { valid: false, error: 'Image must be smaller than 20MB' };
+  if (file.size > MAX_IMAGE_SIZE) {
+    return { valid: false, error: `Image must be smaller than ${formatMB(MAX_IMAGE_SIZE)}` };
   }
   return { valid: true };
 }
@@ -39,7 +43,7 @@ export function validateDocumentFile(file: File): { valid: boolean; error?: stri
     return { valid: false, error: 'File must be a PDF, DOC, DOCX, or TXT file' };
   }
   if (file.size > MAX_DOCUMENT_SIZE) {
-    return { valid: false, error: 'Document must be smaller than 30MB' };
+    return { valid: false, error: `Document must be smaller than ${formatMB(MAX_DOCUMENT_SIZE)}` };
   }
   return { valid: true };
 }
