@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, ChevronsUpDown, Hash, KeyRound, LogOut, Pencil, Plus } from 'lucide-react';
+import { Check, ChevronsUpDown, Copy, Eye, EyeOff, Hash, KeyRound, LogOut, Pencil, Plus } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +40,23 @@ function SpaceIcon({ kind, className }: { kind: Space['kind']; className?: strin
 export function SpaceSwitcher({ space, spaces, onSwitch, onAdd, onRename, onLeave }: SpaceSwitcherProps) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [draft, setDraft] = useState(space.label);
+  const [revealOpen, setRevealOpen] = useState(false);
+  const [shown, setShown] = useState(false);
+
+  // The PIN is the room code. For a passphrase room, the phrase is kept only
+  // if this device saved it.
+  const secret = space.kind === 'pin' ? space.code : space.phrase;
+  const secretName = space.kind === 'pin' ? 'room code' : 'passphrase';
+
+  const copySecret = async () => {
+    if (!secret) return;
+    try {
+      await navigator.clipboard.writeText(secret);
+      toast.success(`Copied ${secretName}`);
+    } catch {
+      toast.error('Failed to copy');
+    }
+  };
 
   return (
     <>
@@ -72,6 +90,13 @@ export function SpaceSwitcher({ space, spaces, onSwitch, onAdd, onRename, onLeav
           <DropdownMenuItem onSelect={onAdd} className="gap-2">
             <Plus className="h-3.5 w-3.5" />
             Add a space
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => { setShown(space.kind === 'pin'); setRevealOpen(true); }}
+            className="gap-2"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            {space.kind === 'pin' ? 'Show room code' : 'Show passphrase'}
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => { setDraft(space.label); setRenameOpen(true); }}
@@ -111,7 +136,49 @@ export function SpaceSwitcher({ space, spaces, onSwitch, onAdd, onRename, onLeav
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
+      <AlertDialog
+        open={revealOpen}
+        onOpenChange={(open) => { setRevealOpen(open); if (!open) setShown(false); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{space.kind === 'pin' ? 'Room code' : 'Passphrase'}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {secret
+                ? `Enter this ${secretName} on another device to open “${space.label}”. Anyone with it can read this space.`
+                : 'This device did not save the passphrase for this space. Add the space again with its passphrase, and the passphrase will be saved here.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {secret && (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+              <code className="flex-1 break-all font-mono text-sm select-all">
+                {shown ? secret : '•'.repeat(Math.min(secret.length, 24))}
+              </code>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => setShown((v) => !v)}
+                aria-label={shown ? `Hide ${secretName}` : `Show ${secretName}`}
+              >
+                {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={copySecret}
+                aria-label={`Copy ${secretName}`}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

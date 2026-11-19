@@ -10,6 +10,8 @@ export interface Space {
   code: string; // room_code in the DB: '123456' or 'p_<64 hex>'
   kind: 'pin' | 'phrase';
   label: string;
+  /** The passphrase, kept on this device only so the user can see or copy it later. */
+  phrase?: string;
 }
 
 const PHRASE_SALT = 'clypsync-passphrase-v1';
@@ -21,7 +23,8 @@ function isSpace(v: unknown): v is Space {
   return (
     !!s && typeof s.id === 'string' && typeof s.label === 'string' &&
     typeof s.code === 'string' && ROOM_CODE_RE.test(s.code) &&
-    (s.kind === 'pin' || s.kind === 'phrase')
+    (s.kind === 'pin' || s.kind === 'phrase') &&
+    (s.phrase === undefined || typeof s.phrase === 'string')
   );
 }
 
@@ -97,8 +100,15 @@ export function defaultLabel(kind: Space['kind'], code: string, list: Space[]): 
   return `Private space ${n}`;
 }
 
-export function createSpace(code: string, kind: Space['kind'], label: string, list: Space[]): Space {
+export function createSpace(
+  code: string,
+  kind: Space['kind'],
+  label: string,
+  list: Space[],
+  phrase?: string
+): Space {
   return {
+    ...(phrase ? { phrase: normalizePhrase(phrase) } : {}),
     id: newId(),
     code,
     kind,

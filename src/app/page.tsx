@@ -10,6 +10,7 @@ import {
   loadActiveId,
   loadSpaces,
   migrateLegacyPin,
+  normalizePhrase,
   phraseToRoomCode,
   saveSpaces,
 } from '@/lib/spaces';
@@ -60,10 +61,15 @@ export default function Home() {
     const current = loadSpaces();
     const existing = current.find((s) => s.code === code);
     if (existing) {
-      commit((l) => l, existing.id);
+      // Re-entering a passphrase saves it on a space that was added without it.
+      const phrase = result.kind === 'phrase' ? normalizePhrase(result.phrase) : undefined;
+      commit((l) => l.map((s) => (s.id === existing.id && phrase ? { ...s, phrase } : s)), existing.id);
       if (adding) toast.info(`Switched to ${existing.label}`);
     } else {
-      const space = createSpace(code, result.kind, result.kind === 'phrase' ? result.label : '', current);
+      const space =
+        result.kind === 'phrase'
+          ? createSpace(code, 'phrase', result.label, current, result.phrase)
+          : createSpace(code, 'pin', '', current);
       commit((l) => [...l, space], space.id);
     }
     setAdding(false);

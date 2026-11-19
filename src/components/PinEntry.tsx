@@ -239,7 +239,7 @@ function PhraseFields({ onComplete }: { onComplete: (phrase: string, label: stri
           Same phrase on any device opens the same clipboard.
         </p>
         <p className="text-xs text-muted-foreground/70">
-          The phrase never leaves this device. There is no recovery if you forget it.
+          The phrase never leaves this device. There is no recovery if you lose it.
         </p>
       </div>
     </form>
