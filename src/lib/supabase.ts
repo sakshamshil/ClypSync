@@ -6,10 +6,10 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const BUCKET_NAME = 'images';
 
-const MAX_DOCUMENT_SIZE = 15 * 1024 * 1024; // 15MB
+const MAX_DOCUMENT_SIZE = 30 * 1024 * 1024; // 30MB
 const DOCUMENT_BUCKET_NAME = 'documents';
 const ALLOWED_DOCUMENT_TYPES = [
   'application/pdf',
@@ -29,7 +29,7 @@ export function validateImageFile(file: File): { valid: boolean; error?: string 
     return { valid: false, error: 'File must be an image' };
   }
   if (file.size > MAX_FILE_SIZE) {
-    return { valid: false, error: 'Image must be smaller than 5MB' };
+    return { valid: false, error: 'Image must be smaller than 20MB' };
   }
   return { valid: true };
 }
@@ -39,7 +39,7 @@ export function validateDocumentFile(file: File): { valid: boolean; error?: stri
     return { valid: false, error: 'File must be a PDF, DOC, DOCX, or TXT file' };
   }
   if (file.size > MAX_DOCUMENT_SIZE) {
-    return { valid: false, error: 'Document must be smaller than 15MB' };
+    return { valid: false, error: 'Document must be smaller than 30MB' };
   }
   return { valid: true };
 }
