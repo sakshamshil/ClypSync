@@ -77,8 +77,8 @@ export function ClipboardView({ space, spaces, onSwitch, onAdd, onRename, onLeav
   const addPaste = async (
     content: string,
     type: 'text' | 'image' | 'document',
-    meta?: { fileName?: string; fileSize?: number }
-  ) => {
+    meta?: { fileName?: string; fileSize?: number; silent?: boolean }
+  ): Promise<boolean> => {
     try {
       const { error: insertError } = await supabase.from('pastes').insert({
         room_code: pin,
@@ -89,14 +89,18 @@ export function ClipboardView({ space, spaces, onSwitch, onAdd, onRename, onLeav
       });
 
       if (insertError) throw insertError;
+      if (meta?.silent) return true;
 
       toast.success(
         type === 'image' ? 'Image uploaded!' : type === 'document' ? 'Document uploaded!' : 'Paste added!'
       );
+      return true;
     } catch {
+      if (meta?.silent) return false;
       toast.error(
         type === 'image' ? 'Failed to upload image' : type === 'document' ? 'Failed to upload document' : 'Failed to add paste'
       );
+      return false;
     }
   };
 
